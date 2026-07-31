@@ -540,6 +540,14 @@
 	flex-shrink: 0;
 }
 
+/* The label is a fixed bit of chrome next to the input; it should never be squeezed. Without this,
+   an inherited `overflow-wrap: anywhere` (e.g. from .tlui-dialog__body) drops its min-content width
+   to a single character and short labels wrap mid-word, e.g. "URL" breaking after "UR". */
+.tlui-input__wrapper > label {
+	flex-shrink: 0;
+	overflow-wrap: normal;
+}
+
 /* If mobile use 16px as font size */
 /* On iOS, font size under 16px in an input will make the page zoom into the input 🤦‍♂️ */
 /* https://css-tricks.com/16px-or-larger-text-prevents-ios-form-zoom/ */
@@ -759,6 +767,16 @@
 	overscroll-behavior: none;
 	scrollbar-width: none;
 	-ms-overflow-style: none;
+}
+
+.tlui-hover-card__content {
+	position: relative;
+	margin: 0px;
+	border: none;
+	border-radius: var(--tl-radius-3);
+	background-color: var(--tl-color-panel);
+	box-shadow: var(--tl-shadow-3);
+	z-index: var(--tl-layer-menus);
 }
 
 /* -------------------- Menu Zone ------------------- */
@@ -1231,6 +1249,7 @@ tldraw? probably.
 .tlui-layout__bottom {
 	grid-row: 2;
 	width: 100%;
+	min-width: 0px;
 }
 
 .tlui-layout__bottom__main {
