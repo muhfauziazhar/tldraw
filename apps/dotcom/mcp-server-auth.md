@@ -108,20 +108,28 @@ So the remaining work is not "build a private-board render path". It is "let the
 
 `recordMintedRenderToken` keys per board — `render-tokens/{kind}/{slug}` — so each mint overwrites its board's record. That is safe for the OG pipeline because it is single-flighted per board by the `.pending` marker, making a newer mint superseding an older one the intended behaviour.
 
-The MCP tool is **not** single-flighted. Concurrent captures of different pages of one board are explicitly supported and tested. If it starts minting `render` jobs, two such captures land in the same per-board key and invalidate each other's tokens, failing with a `403` — as would an edit-triggered render arriving during a capture.
+The MCP tool is **not** single-flighted. Concurrent captures of different pages of one board are explicitly supported and tested. If it starts minting `render` jobs, two such captures land in the same per-board key and invalidate each other's tokens; the loser `403`s on its snapshot fetch and surfaces as a generic `browser_failed`. An edit-triggered render arriving during a capture does the same.
 
-#9667 flags this precisely, in the doc comment on `recordMintedRenderToken`:
+That last detail is what makes this worth treating as blocking rather than as a cleanup: the failure is intermittent, load-dependent, and reported under a reason code that says nothing about the real cause. PR [#9667](https://github.com/tldraw/tldraw/pull/9667) flags the constraint in the doc comment on `recordMintedRenderToken`:
 
 > **If the MCP tool ever mints `render` jobs** — which authenticating those endpoints would invite, since it would let them screenshot private boards — this key must be namespaced by surface first.
-
-Treat that as a blocking prerequisite rather than a cleanup. The failure mode is intermittent and load-dependent, which is the kind that survives testing and shows up in production.
 
 ### What still needs doing here
 
 - **The user access check itself**, which is this proposal's actual contribution: resolve the board against the caller rather than against the public gate, and mint `render` only when that passes.
-- **Gate the cache read, not just the render.** MCP screenshots now live in their own `MCP_SCREENSHOTS` bucket, keyed `mcp/{kind}/{slug}/{version}/{w}x{h}/{theme}/page-{n}.png` — still no viewer dimension. A cached private board would be served to anyone naming the right board id, so the access check must run before the cache lookup.
+- **Gate the cache read, not just the render** — and specifically _not_ by adding a viewer to the cache key. MCP screenshots live in their own `MCP_SCREENSHOTS` bucket, keyed `mcp/{kind}/{slug}/{version}/{w}x{h}/{theme}/page-{n}.png`, with no viewer dimension. A cached private board would otherwise be served to anyone naming the right board id, so something has to change — but the two fixes are not equivalent. See below.
 - **Keep one not-found message.** `resolveSharedBoardById`'s try-shared-then-published fallback becomes an existence oracle if "no such board" and "you can't see it" are distinguishable.
-- **Don't reintroduce board identity into telemetry.** #9667 removes it deliberately, since for a link-shared file the slug _is_ the capability to view the board. Swapping the hashed-IP dimension for a hashed user id is compatible with that; adding a board dimension back is not.
+- **Don't reintroduce board identity into telemetry.** PR #9667 removes it deliberately, since for a link-shared file the slug _is_ the capability to view the board. Swapping the hashed-IP dimension for a hashed user id is compatible with that; adding a board dimension back is not.
+
+### Why gating the read beats keying by viewer
+
+The obvious alternative to gating the cache read is putting the viewer in the cache key. It is the more expensive option, and the difference is spend rather than correctness.
+
+Those keys currently collapse every caller onto one object per `(board, version, size, theme, page)`. A viewer dimension multiplies the object count by distinct viewers and drops the hit rate proportionally — and because the per-board limiter counts captures only on misses, a flow that costs nothing today starts spending Browser Run once per viewer. Two people screenshotting the same public board would each pay for their own render of an identical image.
+
+Gating the read on the access check keeps one object per board and spends nothing extra: the check runs before the lookup, and a caller who passes it gets the shared cached object. So the security-motivated fix is also the cheaper one, which is worth stating explicitly because "gate the cache read" reads like a pure correctness choice.
+
+This matters more after the viewport change, not less: caller-specified viewports already fragment the key space, so adding a viewer dimension on top would multiply an already-worse hit rate.
 
 ### The viewport change reinforces this
 
