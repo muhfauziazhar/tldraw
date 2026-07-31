@@ -39,7 +39,7 @@ The friends-and-family flag stages the rollout: required auth goes on for the fl
 `sharedBoardScreenshotMcp.ts` is a hand-rolled JSON-RPC handler on a single route (`worker.ts:186`), not an MCP SDK server. There are no sessions, no Durable Objects, and no per-caller state. Relevant specifics:
 
 - **The protocol version is pinned to `2024-11-05`** (`MCP_PROTOCOL_VERSION`). This predates MCP authorization entirely — auth was introduced in `2025-03-26` and reworked in `2025-06-18`. **Upgrading the advertised protocol version is a prerequisite**, not a follow-up: there is no conformant way to bolt auth onto `2024-11-05`, and clients keying off the advertised version won't attempt a flow the server claims not to support.
-- **Abuse control already exists and is not naive.** Three tiers of rate limit (per-IP, per-board, global Browser Run cap), a kill switch (`MCP_SCREENSHOT_ENABLED`), and telemetry with deliberately bounded cardinality. Auth is not the first line of defence here — it's a better key for a defence that's already built.
+- **Abuse control already exists and is not naive.** Three tiers of rate limit (per-IP, per-board, global Browser Run cap), a kill switch (`MCP_SCREENSHOT_ENABLED`), and telemetry with deliberately bounded cardinality. [#9667](https://github.com/tldraw/tldraw/pull/9667) confines rate limiting to this endpoint — the one Browser Run-spending surface an outside caller drives directly — and splits it across three bindings so the tiers can hold different numbers. Auth is not the first line of defence here; it's a better key for a defence that is already built.
 - **sync-worker is already a Clerk consumer.** `@clerk/backend` ^1.23.7 is a dependency, `CLERK_SECRET_KEY` / `CLERK_PUBLISHABLE_KEY` are in `Environment`, and `utils/tla/getAuth.ts` has `getAuth`/`requireAuth` with an `authorizedParties` allowlist. This is a much shorter path than starting cold.
 - **There are no `.well-known` routes on the worker**, and no OAuth dependency anywhere in the repo.
 
@@ -90,34 +90,44 @@ The requirement is to replace that with "can **this user** see this board". Comp
 A user-scoped gate admits boards that are not public — the user's own private files. That is a genuine expansion of what this server does, from "screenshot public boards" to "screenshot any board you can see", and it should be an explicit decision:
 
 - **Tighten only.** Keep the public-viewability gate and additionally require that the caller is signed in and flag-enabled. Private boards stay unreachable. Smallest change, no new exposure.
-- **Extend to the user's own boards.** The tools become useful for private work, which is probably the point of authenticating in the first place. Larger security surface — see below.
+- **Extend to the user's own boards.** The tools become useful for private work, which is probably the point of authenticating in the first place.
 
-The document assumes the second is intended, since checking "does this user have access" is otherwise indistinguishable from checking nothing. Confirm before building.
+The document assumes the second is intended, since checking "does this user have access" is otherwise indistinguishable from checking nothing. Confirm before building — but note the cost of the second option is now much lower than it looks, because [#9667](https://github.com/tldraw/tldraw/pull/9667) has already built the private-board render path.
 
-### The render pipeline assumes public boards, in three places
+### Most of the render-side work is already done by #9667
 
-This is the part most likely to bite, and it isn't visible from the MCP handler alone. The share gate is re-applied at three separate points, and all three are anonymous-public checks:
+[#9667](https://github.com/tldraw/tldraw/pull/9667) builds the private-board render path for its own reasons — thumbnails are generated for every board so owner-facing surfaces always have one — and in doing so it solves the problems this proposal would otherwise have had to. Reading it before starting is worth more than anything in this section:
 
-1. `resolveSharedBoardById` / `resolveThumbnailBoard`, when the tool call arrives.
-2. `loadBoardSnapshot`, which re-checks the publish/share gate as it reads.
-3. `GET /app/thumbnail-render/snapshot`, which the render page calls to fetch snapshot data. Per `browser-run-thumbnails.md`, this deliberately re-checks the share gate "not just when the token was minted, so a board un-shared during the token's 5 minute window stops resolving."
+- **The access level is signed into the render job.** `ThumbnailBoardAccess` is `public` or `render`, carried in `ThumbnailRenderJob.access` and "taken from the resolution rather than the caller, so a surface cannot render under a gate it did not resolve under." The public-only path therefore already has a gate a user-scoped token cannot satisfy — the separation this proposal needs exists.
+- **Render tokens are already two-factor for private boards.** Because the snapshot route serves a private board's whole document, a leaked `MCP_SCREENSHOT_TOKEN_SECRET` would have been sufficient to read any board. Every `render` mint now records the token's hash in R2 and the route requires that record, so forged signatures fail without write access to our bucket. The TTL also drops from 5 minutes to 60s.
+- **The MCP tool mints `public` and is deliberately not recorded**, on the grounds that it only renders boards anyone could already fetch, so a record would guard nothing.
 
-**That third endpoint is unauthenticated.** It verifies the HMAC render token (`403` on invalid or expired) and carries no user context — `ThumbnailRenderJob` holds `kind`, `slug`, `pageId`, and render params, but no `userId`. Its safety today rests entirely on the board being public anyway: even if a token leaked, it only ever unlocks something the holder could already view.
+So the remaining work is not "build a private-board render path". It is "let the MCP tool mint `render` instead of `public`, once it can prove the caller may see the board" — much smaller, with one hard prerequisite.
 
-Extending to private boards breaks that reasoning. Relaxing the gate at points 2 and 3 so private boards can render makes the render token the **sole** authority for reading a private board's contents, at an endpoint with no authentication. So if private boards are in scope, the token must bind the requesting user and the snapshot route must verify that user's access — not merely that the token is well-formed and unexpired. Adding `userId` to the signed job payload and re-running the access check in `getThumbnailSnapshot` is the straightforward version.
+### The prerequisite: namespace the minted-token key by surface
 
-Two smaller consequences of the same change:
+`recordMintedRenderToken` keys per board — `render-tokens/{kind}/{slug}` — so each mint overwrites its board's record. That is safe for the OG pipeline because it is single-flighted per board by the `.pending` marker, making a newer mint superseding an older one the intended behaviour.
 
-- **Cache keys need a viewer dimension, or the check has to precede the cache read.** Keys are `mcp/{kind}/{slug}/{version}/...` with no notion of who may see them. A cached private board would otherwise be served to any caller who names the right board id — the access check must gate the cache read, not just the render.
-- **`resolveSharedBoardById`'s try-shared-then-published fallback becomes an existence oracle** if error messages distinguish "no such board" from "you can't see it". Keep the current single not-found message for both.
+The MCP tool is **not** single-flighted. Concurrent captures of different pages of one board are explicitly supported and tested. If it starts minting `render` jobs, two such captures land in the same per-board key and invalidate each other's tokens, failing with a `403` — as would an edit-triggered render arriving during a capture.
 
-### Keep the gate separate, not relaxed
+#9667 flags this precisely, in the doc comment on `recordMintedRenderToken`:
 
-Planned work moves MCP screenshots to caller-specified viewports, leaving the fixed-size thumbnail render for the image generation flow. That splits two surfaces which today share `resolveThumbnailBoard`, `loadBoardSnapshot`, and the render token path — and they will no longer share an access model. MCP becomes user-scoped; OG images and thumbnails must stay strictly public, because they are served to crawlers and link unfurlers with no user at all.
+> **If the MCP tool ever mints `render` jobs** — which authenticating those endpoints would invite, since it would let them screenshot private boards — this key must be namespaced by surface first.
 
-So the user-scoped check should be **a new gate alongside the existing one, not a relaxation of the shared helpers**. Loosening `loadBoardSnapshot` or the snapshot route in place would silently let the OG image route render private boards — a board owner's private file appearing in a link unfurl is exactly the failure this note exists to prevent. Whatever shape it takes, the public-only path must keep a gate that cannot be satisfied by a user-scoped token.
+Treat that as a blocking prerequisite rather than a cleanup. The failure mode is intermittent and load-dependent, which is the kind that survives testing and shows up in production.
 
-Two more consequences of the viewport change, neither blocking but both worth designing around now:
+### What still needs doing here
+
+- **The user access check itself**, which is this proposal's actual contribution: resolve the board against the caller rather than against the public gate, and mint `render` only when that passes.
+- **Gate the cache read, not just the render.** MCP screenshots now live in their own `MCP_SCREENSHOTS` bucket, keyed `mcp/{kind}/{slug}/{version}/{w}x{h}/{theme}/page-{n}.png` — still no viewer dimension. A cached private board would be served to anyone naming the right board id, so the access check must run before the cache lookup.
+- **Keep one not-found message.** `resolveSharedBoardById`'s try-shared-then-published fallback becomes an existence oracle if "no such board" and "you can't see it" are distinguishable.
+- **Don't reintroduce board identity into telemetry.** #9667 removes it deliberately, since for a link-shared file the slug _is_ the capability to view the board. Swapping the hashed-IP dimension for a hashed user id is compatible with that; adding a board dimension back is not.
+
+### The viewport change reinforces this
+
+Planned work moves MCP screenshots to caller-specified viewports, leaving fixed-size renders to the image generation flow. That further separates two surfaces which already have different access models — OG images are served to crawlers with no user at all — so the user-scoped gate must stay alongside the shared helpers rather than relaxing them. A private board reaching a link unfurl is the failure this guards against.
+
+Two consequences worth designing around now:
 
 - **Arbitrary viewports are much less cacheable.** The current key space is small and bounded (one entry per page, theme, and version); caller-chosen viewports make near-every call a miss, so Browser Run spend per call rises sharply. That strengthens the case for per-user quotas rather than weakening it, and viewport parameters will need bounding so a caller can't request an absurd render size.
 - **The render token gains viewport parameters**, which is the same payload that would gain `userId` for private-board access. Worth doing both in one change to the signed job rather than two.
@@ -157,24 +167,26 @@ So the flag work picks a key:
 ## Overlap and sequencing
 
 - **The friends-and-family flag lands first.** This proposal assumes it exists and consumes it. The flag work owns the entitlement decision and the `userId`-vs-`email` question above; this work owns establishing identity and handing it over.
+- **[#9667](https://github.com/tldraw/tldraw/pull/9667) is the significant dependency.** It builds the private-board render path, the signed `ThumbnailBoardAccess` level, and two-factor render tokens — most of what the access check would otherwise need. It also relocates MCP screenshots to their own `MCP_SCREENSHOTS` bucket and confines rate limiting to the MCP endpoint, so the surfaces this proposal touches move under it. Read it first; land after it; do not design against `main`.
 - **[#9774](https://github.com/tldraw/tldraw/pull/9774)** is actively rewriting `sharedBoardScreenshotMcp.ts` and its tests (cluster-based tools, cache key changes, new telemetry surfaces). Nothing here conflicts — auth wraps the route rather than changing tool internals — but this should land after it, or be written against its branch.
 - **`apps/mcp-app` is a separate decision.** It's a different server with a different architecture (MCP SDK, `McpAgent`, Durable Objects), gated on a single shared `MCP_AUTH_TOKEN` that isn't set in production, with no per-user identity. It needs its own answer; the two shouldn't be bundled.
 
 ## Rollout
 
-0. The friends-and-family flag lands, including whatever allowlist mechanism it needs (prerequisite, tracked separately).
+0. Prerequisites, both tracked separately: the friends-and-family flag including whatever allowlist mechanism it needs, and [#9667](https://github.com/tldraw/tldraw/pull/9667).
 1. Land the protocol upgrade on its own, verifying existing clients still work. Separable, and it de-risks the rest.
-2. Add discovery endpoints and token verification. Announce the cutover date — every existing anonymous caller breaks at step 4.
-3. Verify each client end to end. This is a gate, not a formality — connector-side OAuth failures produce opaque errors with nothing in our logs.
-4. Enforce for flag-enabled users, denying everyone else. Because auth is required, there is no anonymous path to fall back to, so this is the breaking moment rather than a soft launch.
-5. Land the per-user board access check, with the render pipeline changes it needs.
-6. Widen the flag as confidence builds.
+2. Namespace the minted-token record key by surface. Small, independently testable, and required before the MCP tool can mint `render`.
+3. Add discovery endpoints and token verification. Announce the cutover date — every existing anonymous caller breaks at step 5.
+4. Verify each client end to end. This is a gate, not a formality — connector-side OAuth failures produce opaque errors with nothing in our logs.
+5. Enforce for flag-enabled users, denying everyone else. Because auth is required, there is no anonymous path to fall back to, so this is the breaking moment rather than a soft launch.
+6. Land the per-user board access check and switch the tool to minting `render`.
+7. Widen the flag as confidence builds.
 
-Steps 4 and 5 are separable and worth keeping apart: step 4 is the disruptive one for existing callers, step 5 is the one with security surface in the render pipeline. Landing them together means debugging both classes of problem at once.
+Steps 5 and 6 are worth keeping apart: step 5 is the disruptive one for existing callers, step 6 is the one that changes what the tools can reach. Landing them together means debugging both classes of problem at once.
 
 ## Open questions
 
-1. **Does the access check admit private boards, or only tighten the public gate?** The larger of the two scope questions — it determines whether the render pipeline work in [Checking board access](#checking-board-access) is needed at all.
+1. **Does the access check admit private boards, or only tighten the public gate?** The main scope question. Cheaper than it looks now that [#9667](https://github.com/tldraw/tldraw/pull/9667) has built the private-board render path, but it is still the decision that sets how much this server can reach.
 2. **How does the flag name specific users?** The current flag types can't express an allowlist. Owned by the flag work, but it blocks the rollout.
 3. **Does the flag gate on `userId` or `email`?** Determines whether the auth layer needs a verified email claim in the token.
 4. **Does the `/api` prefix allow serving `.well-known` at the public origin?** Needs verifying before path layout is fixed.
