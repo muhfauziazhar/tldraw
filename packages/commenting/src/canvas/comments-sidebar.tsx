@@ -1,8 +1,7 @@
 import { ReactNode, useCallback, useRef } from 'react'
-import { createPortal } from 'react-dom'
 import {
+	EditorPortal,
 	TLComment,
-	useContainer,
 	useEditor,
 	usePassThroughMouseOverEvents,
 	useTranslation,
@@ -51,7 +50,6 @@ export function CanvasCommentsSidebar(props: CanvasCommentsSidebarProps) {
 	const resolveName = useCallback((id: string) => resolveAuthor(id)?.name, [resolveAuthor])
 	const editor = useEditor()
 	const options = useCommentingOptions()
-	const container = useContainer()
 	const commentingEnabled = useCommentingEnabled()
 	const msg = useTranslation()
 	const threads = useCommentThreads(editor)
@@ -140,7 +138,7 @@ export function CanvasCommentsSidebar(props: CanvasCommentsSidebarProps) {
 	}
 
 	return (
-		<SidebarPanel container={container}>
+		<SidebarPanel>
 			<CommentsList
 				items={items}
 				header={header ?? msg('comments.title')}
@@ -190,13 +188,14 @@ export function sortSidebarRows(rows: readonly SidebarRow[]): readonly SidebarRo
 /** The sidebar surface, portaled into the container. It scrolls its own list, so — unlike tldraw's
  *  wheel-transparent panels — a wheel over it doesn't pan the canvas. Hover still passes through so
  *  shapes beneath it stay interactive. */
-function SidebarPanel({ container, children }: { container: HTMLElement; children: ReactNode }) {
+function SidebarPanel({ children }: { children: ReactNode }) {
 	const ref = useRef<HTMLDivElement>(null)
 	usePassThroughMouseOverEvents(ref)
-	return createPortal(
-		<div ref={ref} className="tlui-cmt-canvas-sidebar" onContextMenu={(e) => e.stopPropagation()}>
-			{children}
-		</div>,
-		container
+	return (
+		<EditorPortal>
+			<div ref={ref} className="tlui-cmt-canvas-sidebar" onContextMenu={(e) => e.stopPropagation()}>
+				{children}
+			</div>
+		</EditorPortal>
 	)
 }
