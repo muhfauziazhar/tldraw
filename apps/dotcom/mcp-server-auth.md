@@ -69,13 +69,15 @@ Cons: enabling dynamic client registration creates a public, unauthenticated cli
 
 Stand up `@cloudflare/workers-oauth-provider` in the worker, with Clerk as the upstream identity provider. Tokens are ours, scoped to this resource, revocable independently, and dynamic client registration sits on our endpoint where we control its rate limits.
 
-Cons: we operate an authorization server — a KV namespace, grant storage, token lifetime decisions — and reason about two token systems instead of one. That's real ongoing surface for a server exposing two read-only tools over public data.
+Cons: we operate an authorization server — a KV namespace, grant storage, token lifetime decisions — and reason about two token systems instead of one.
 
 ### Recommendation
 
-**Option A**, on the grounds that the thing being protected is public board screenshots, and the proportionate answer is the one that adds least machinery to a worker that already speaks Clerk. Option B's main advantage — keeping dynamic client registration off the production Clerk instance — is a genuine security consideration and the reason to reverse this if the DCR exposure is judged unacceptable. Worth an explicit decision rather than defaulting.
+**Option A**, on the grounds that it adds least machinery to a worker that already speaks Clerk. This is the opposite call from what would suit a standalone worker with no existing identity story; it turns on sync-worker already being a Clerk consumer.
 
-Note this is the opposite call from what would suit a standalone worker with no existing identity story; it turns on sync-worker already being a Clerk consumer.
+**But the access check changes the weighting, and this should be re-examined rather than assumed.** The proportionality argument for Option A was strongest when the tools only reached public boards: a leaked token bought an attacker nothing they couldn't get from a browser. If [the access check admits private boards](#the-scope-question-this-raises), tokens minted through this flow become credentials for private user content, and Option B's advantages get more valuable — tokens scoped to this resource alone rather than usable against tldraw.com, revocable independently, and dynamic client registration kept off the Clerk instance that guards the main app.
+
+So: Option A if the access check only tightens the public gate. If private boards are in scope, re-run the comparison before committing — the answer may well flip, and it is much cheaper to decide that now than to migrate token issuance later.
 
 ## Checking board access
 
