@@ -14,6 +14,7 @@ import {
 import { defineMessages, F, useMsg } from '../../utils/i18n'
 import { setRedirectOnSignIn } from '../../utils/redirect'
 import { ExternalLink } from '../ExternalLink/ExternalLink'
+import { TlaButton } from '../TlaButton/TlaButton'
 import { TlaCtaButton } from '../TlaCtaButton/TlaCtaButton'
 import { TlaLogo } from '../TlaLogo/TlaLogo'
 import styles from './auth.module.css'
@@ -471,22 +472,15 @@ function TlaVerificationCodeStep({
 						defaultMessage="Didn’t receive a code? <resend>Resend</resend>."
 						values={{
 							resend: (chunks) => (
-								<button
-									type="button"
-									data-testid="tla-resend-code-button"
-									onClick={handleResend}
-									className={styles.authResendButton}
-									disabled={resendCooldown > 0 || state.isSubmitting}
-								>
+								<TlaButton variant="secondary" ghost onClick={handleResend} disabled={resendCooldown > 0 || state.isSubmitting}>
 									{resendCooldown > 0 ? (
 										<>
-											{/* eslint-disable-next-line tldraw/jsx-no-literals */}
 											{chunks} ({resendCooldown})
 										</>
 									) : (
 										chunks
 									)}
-								</button>
+								</TlaButton>
 							),
 						}}
 					/>

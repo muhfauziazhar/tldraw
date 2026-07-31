@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { TlaButton } from '../TlaButton/TlaButton'
 
 // todo: remove tailwind
 
@@ -69,13 +70,9 @@ export function BoardHistoryLog({ data, hasMore, onLoadMore, isLoading }: BoardH
 			</div>
 			{hasMore && (
 				<div className="board-history__load-more">
-					<button
-						onClick={onLoadMore}
-						disabled={isLoading}
-						className="board-history__load-more-button"
-					>
+					<TlaButton variant="secondary" ghost onClick={onLoadMore} disabled={isLoading}>
 						{isLoading ? 'Loading...' : 'Load More'}
-					</button>
+					</TlaButton>
 				</div>
 			)}
 		</div>

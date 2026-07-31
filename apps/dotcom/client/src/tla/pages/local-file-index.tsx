@@ -1,6 +1,7 @@
 /* eslint-disable tldraw/jsx-no-literals */
 import { deleteDB } from 'idb'
 import { Link, useNavigate } from 'react-router-dom'
+import { TlaButton } from '../TlaButton/TlaButton'
 import { compact } from 'tldraw'
 import { routes } from '../../routeDefs'
 import { defineLoader } from '../../utils/defineLoader'
@@ -43,9 +44,9 @@ export function Component() {
 							{routes.tlaLocalFile(persistenceKey)}
 						</Link>
 						-{' '}
-						<button onClick={() => onDelete(persistenceKey)} style={{ padding: 0 }}>
+						<TlaButton variant="secondary" ghost onClick={() => onDelete(persistenceKey)}>
 							delete
-						</button>
+						</TlaButton>
 					</li>
 				))}
 			</ul>

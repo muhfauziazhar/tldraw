@@ -7,6 +7,7 @@ import {
 	TldrawUiDialogTitle,
 } from 'tldraw'
 import { useMaybeApp } from '../../hooks/useAppState'
+import { TlaButton } from '../TlaButton/TlaButton'
 import { F } from '../../utils/i18n'
 import styles from './TlaInviteDialog.module.css'
 
@@ -44,20 +45,16 @@ export function TlaInviteDialog({
 					/>
 				</div>
 
-				<button
-					className={styles.acceptButton}
-					disabled={isAccepting}
-					onClick={async () => {
+				<TlaButton variant="primary" big disabled={isAccepting} onClick={async () => {
 						if (!app) return
 						setIsAccepting(true)
 						await app.acceptWorkspaceInvite(inviteInfo.inviteSecret).finally(() => {
 							setIsAccepting(false)
 						})
 						onClose()
-					}}
-				>
-					<F defaultMessage="Accept invitation" />
-				</button>
+					}}>
+						<F defaultMessage="Accept invitation" />
+					</TlaButton>
 			</TldrawUiDialogBody>
 		</>
 	)

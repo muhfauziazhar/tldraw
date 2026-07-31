@@ -2,6 +2,7 @@ import { Component, ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import translationsEnJson from '../../../public/tla/locales-compiled/en.json'
 import { F, IntlProvider } from '../../tla/utils/i18n'
+import { TlaButton } from '../../tla/components/TlaButton/TlaButton'
 import { isInIframe } from '../../utils/iFrame'
 
 const GoBackLink = () => {
@@ -79,9 +80,9 @@ export class RefreshErrorBoundary extends Component<
 				<ErrorPage
 					messages={this.props.messages}
 					cta={
-						<button type="button" onClick={() => window.location.reload()}>
+						<TlaButton variant="secondary" ghost type="button" onClick={() => window.location.reload()}>
 							{this.props.messages.cta}
-						</button>
+						</TlaButton>
 					}
 				/>
 			)

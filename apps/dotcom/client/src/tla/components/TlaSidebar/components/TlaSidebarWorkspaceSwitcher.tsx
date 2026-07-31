@@ -19,6 +19,7 @@ import { getIsCoarsePointer } from '../../../utils/getIsCoarsePointer'
 import { defineMessages, useMsg } from '../../../utils/i18n'
 import { CreateWorkspaceDialog } from '../../dialogs/CreateWorkspaceDialog'
 import { TLA_MENU_POSITION } from '../../tla-menu/tla-menu'
+import { TlaButton } from '../TlaButton/TlaButton'
 import { TlaIcon } from '../../TlaIcon/TlaIcon'
 import styles from '../sidebar.module.css'
 
