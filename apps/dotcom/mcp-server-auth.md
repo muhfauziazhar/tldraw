@@ -10,7 +10,9 @@ Companion to [`browser-run-thumbnails.md`](./browser-run-thumbnails.md), which d
 
 The MCP server at `POST /api/app/mcp` is anonymous by design. This proposes putting it behind a signed-in tldraw.com account, using OAuth 2.1 so that MCP clients (Claude, ChatGPT, Cursor) can complete the sign-in themselves.
 
-It assumes the friends-and-family feature flag work has already landed. This layer's job is to establish identity and hand a verified `userId` and `email` to that flag gate, which owns the decision about who is actually let in.
+**Any signed-in tldraw.com user qualifies.** There is no staff restriction, no `@tldraw.com` requirement, and no permanent allowlist — the bar is having an account and being signed in.
+
+It assumes the friends-and-family feature flag work has already landed. This layer's job is to establish identity and hand a verified `userId` (and `email`, if the flag needs it) to that flag gate. The flag is a rollout control on the way to all signed-in users, not a narrower entitlement that replaces it.
 
 The important thing to settle before any of the mechanism matters is whether auth is **required or optional**, because this server is not a private surface that leaked. It was built to serve public boards to anonymous agents, and requiring sign-in removes that use case deliberately. That fork is covered first, below, and everything after it assumes the answer.
 
@@ -30,7 +32,7 @@ What it costs: every current anonymous caller, and the "point any agent at a pub
 
 This document proceeds on **required**, as asked. The mechanism below is identical either way — optional auth is the same OAuth plumbing with the 401 made conditional and the rate-limit tier chosen by whether a token was present — so nothing here is wasted if the call goes the other way.
 
-The friends-and-family flag lands before this and makes the fork less binary in practice: with a flag gate in place, access is "signed in **and** flag-enabled", so required auth can be switched on for the flagged population while everyone else keeps the anonymous path. See [What auth hands to the feature flag gate](#what-auth-hands-to-the-feature-flag-gate).
+The friends-and-family flag lands before this and makes the fork less binary in practice: required auth can be switched on for the flagged population first while everyone else keeps the anonymous path, then widened as the flag opens up. The target is still every signed-in user — the flag just stages getting there. See [What auth hands to the feature flag gate](#what-auth-hands-to-the-feature-flag-gate).
 
 ## Where we are today
 
@@ -89,19 +91,21 @@ Ballpark: the protocol upgrade and the discovery/401 handling are each small; Cl
 
 ## What auth hands to the feature flag gate
 
-The friends-and-family flag work lands **before** this, so auth is not the thing deciding who gets in. The flag gate decides that; auth's job is to produce a trustworthy `userId` and `email` for it to evaluate against. Access becomes "signed in **and** flag-enabled" — auth proves who the caller is, the flag decides whether they're allowed. Keeping that split clean is what makes the friends-and-family rollout adjustable without redeploying the auth layer.
+The friends-and-family flag work lands **before** this, so auth is not the thing deciding who gets in. Auth's job is to produce a trustworthy identity; the flag decides how much of the signed-in population is switched on at any point in the rollout. The end state is every signed-in user — the flag is the dial that gets there safely, not a permanent restriction to a subset.
 
-Two things about the existing flag system shape this, and neither is obvious from the outside:
+That keeps the split clean: the rollout can be widened without redeploying the auth layer, and auth never encodes who is eligible.
 
-- **`evaluateFlagForUser` takes `userId` only — there is no `email` parameter.** Percentage flags hash `userId + flagName` (`hashToPercentage`); boolean flags ignore the user entirely. So an email-based friends-and-family gate needs email plumbed into server-side flag evaluation, which doesn't exist today.
-- **The one email-based override we already have is client-side.** `commenting_enabled` says "users with a @tldraw.com email always have it, regardless of this flag", and that check lives in the client (`TldrawApp.ts:96`, `useUser.tsx:38`), not in `featureFlags.ts`. That pattern does not carry over: MCP clients are Claude and ChatGPT, not our React app, so the gate has to be enforced server-side or it isn't a gate at all.
+One wrinkle in the existing flag system is worth settling before the flag work lands, because it determines what auth has to put in the token:
 
-Which leaves a concrete decision for the flag work to make, ideally before it lands:
+- **`evaluateFlagForUser` takes `userId` only — there is no `email` parameter.** Percentage flags hash `userId + flagName` (`hashToPercentage`); boolean flags ignore the user entirely. Server-side flag evaluation has no email today.
+- **Our existing email-based override is client-side.** `commenting_enabled` grants access to `@tldraw.com` emails regardless of the flag, and that check lives in the client (`TldrawApp.ts:96`, `useUser.tsx:38`), not in `featureFlags.ts`. Noted as prior art for _how_ email overrides have been done, not as a model for this gate: MCP callers are Claude and ChatGPT rather than our React app, so anything enforced there isn't enforced at all.
 
-- **Gate on `userId` only**, using an allowlist or percentage rollout. Needs nothing new — the token already carries `userId`, and this is what `evaluateFlagForUser` is built for.
-- **Gate on `email`**, which reads more naturally for friends-and-family. The catch: the server-side route to email today is a Clerk API call (`users.getUser()`, as `requireAdminAccess` does), i.e. a per-request round trip on a path that is otherwise careful about spend. Better to put a verified email claim in the Clerk session token so it arrives with the request, or to resolve email once and cache the mapping.
+So the flag work picks one:
 
-If the flag ends up gating on email, add the email claim as part of the flag work rather than here — the auth layer then just reads what's already in the token.
+- **Gate on `userId`** — an allowlist during friends-and-family, or a percentage rollout, widening to everyone. Needs nothing new: the token carries `userId`, and this is exactly what `evaluateFlagForUser` is built for.
+- **Gate on `email`** — only if the friends-and-family list is genuinely maintained as email addresses. The catch is that the server-side route to email is a Clerk API call (`users.getUser()`, as `requireAdminAccess` does), i.e. a per-request round trip on a path that is otherwise careful about spend. That wants a verified email claim in the Clerk session token, added as part of the flag work so the auth layer just reads it.
+
+`userId` is the cheaper path and the one that matches how percentage rollouts already work here.
 
 ## Overlap and sequencing
 
