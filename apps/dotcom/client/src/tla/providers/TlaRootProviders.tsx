@@ -27,6 +27,7 @@ import translationsEnJson from '../../../public/tla/locales-compiled/en.json'
 import { ErrorPage, RefreshErrorBoundary } from '../../components/ErrorPage/ErrorPage'
 import { SignedInAnalytics, SignedOutAnalytics, trackEvent } from '../../utils/analytics'
 import { globalEditor } from '../../utils/globalEditor'
+import { TlaButton } from '../components/TlaButton/TlaButton'
 import { TlaCookieConsent } from '../components/dialogs/TlaCookieConsent'
 import { TlaLegalAcceptance } from '../components/dialogs/TlaLegalAcceptance'
 import { MaybeForceUserRefresh } from '../components/MaybeForceUserRefresh/MaybeForceUserRefresh'
@@ -282,9 +283,9 @@ function SignedInProvider({
 						para1: intl.formatMessage(appMessages.clerkUnavailablePara),
 					}}
 					cta={
-						<button type="button" onClick={() => window.location.reload()}>
+						<TlaButton variant="secondary" ghost type="button" onClick={() => window.location.reload()}>
 							{intl.formatMessage(appMessages.refresh)}
-						</button>
+						</TlaButton>
 					}
 				/>
 			)

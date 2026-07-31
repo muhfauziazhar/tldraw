@@ -20,9 +20,8 @@ import { TlaUserSettingsMenu } from './components/TlaSidebarUserSettingsMenu'
 import { TlaSidebarWorkspaceActions } from './components/TlaSidebarWorkspaceActions'
 import { TlaSidebarWorkspaceLink } from './components/TlaSidebarWorkspaceLink'
 import { TlaSidebarWorkspaceSwitcher } from './components/TlaSidebarWorkspaceSwitcher'
-import styles from './sidebar.module.css'
-
-export const TlaSidebar = memo(function TlaSidebar() {
+import { TlaButton } from '../TlaButton/TlaButton'
+import styles from '../sidebar.module.css'
 	const isSidebarOpen = useIsSidebarOpen()
 	const isSidebarOpenMobile = useIsSidebarOpenMobile()
 	const trackEvent = useTldrawAppUiEvents()
@@ -64,11 +63,13 @@ export const TlaSidebar = memo(function TlaSidebar() {
 
 	return (
 		<nav aria-hidden={!isSidebarOpen} style={{ visibility: isSidebarOpen ? 'visible' : 'hidden' }}>
-			<button
+			<TlaButton
 				className={styles.sidebarOverlayMobile}
 				data-visiblemobile={isSidebarOpenMobile}
 				data-testid="tla-sidebar-overlay-mobile"
 				onClick={handleOverlayClick}
+				variant="secondary"
+				ghost
 			/>
 			<div
 				className={styles.sidebar}

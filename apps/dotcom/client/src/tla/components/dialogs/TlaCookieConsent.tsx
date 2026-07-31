@@ -1,8 +1,8 @@
 import { fetch } from '@tldraw/utils'
-import classNames from 'classnames'
 import { memo, useCallback, useEffect, useState } from 'react'
 import { useDialogs, useValue } from 'tldraw'
 import { useAnalyticsConsent } from '../../hooks/useAnalyticsConsent'
+import { TlaButton } from '../TlaButton/TlaButton'
 import { F } from '../../utils/i18n'
 import { TlaManageCookiesDialog } from './TlaManageCookiesDialog'
 import styles from './dialogs.module.css'
@@ -109,34 +109,16 @@ export const TlaCookieConsent = memo(function TlaCookieConsent() {
 					<F defaultMessage="This site uses cookies to make the app work and to collect analytics." />
 				</p>
 				<div className={styles.cookieButtonsRow}>
-					<button
-						className={classNames('tla-button-text', styles.cookieButton, styles.hoverable)}
-						onClick={handleReject}
-					>
+					<TlaButton variant="secondary" ghost onClick={handleReject}>
 						<F defaultMessage="Opt out" />
-					</button>
+					</TlaButton>
 					<div className={styles.cookieButtons}>
-						<button
-							className={classNames('tla-button-text', styles.cookieButton, styles.hoverable)}
-							onClick={handleCustomize}
-						>
+						<TlaButton variant="secondary" ghost onClick={handleCustomize}>
 							<F defaultMessage="Settings" />
-						</button>
-						<button
-							className={classNames(
-								'tla-button-text',
-								styles.cookieButton,
-								styles.cookieAcceptButton,
-								styles.hoverable
-							)}
-							onClick={handleAccept}
-						>
-							<div className={styles.cookieAcceptButtonTextWrapper}>
-								<div className={styles.cookieAcceptButtonText}>
-									<F defaultMessage="Accept all" />
-								</div>
-							</div>
-						</button>
+						</TlaButton>
+						<TlaButton variant="primary" onClick={handleAccept}>
+							<F defaultMessage="Accept all" />
+						</TlaButton>
 					</div>
 				</div>
 			</div>
