@@ -133,9 +133,10 @@ export function TlaSidebarNotificationsPanel({ onClose }: { onClose(): void }) {
 						className={styles.markAll}
 						onClick={() => {
 							if (!app) return
-							for (const { comment: c } of notifications) {
-								if (!c.read) app.markCommentRead(c.id)
-							}
+							// one batched mutation rather than one markRead per comment
+							app.markCommentsRead(
+								notifications.filter(({ comment: c }) => !c.read).map(({ comment: c }) => c.id)
+							)
 						}}
 						disabled={unreadCount === 0}
 					>
